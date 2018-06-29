@@ -1,113 +1,86 @@
 <?php
 
-include ($_SERVER["DOCUMENT_ROOT"]."/Camagru/config/setup.php");
-include ($_SERVER["DOCUMENT_ROOT"]."/Camagru/account/ft_account.php");
-//TOUT PASSER EN INCLUDE_ONCE
+include_once($_SERVER["DOCUMENT_ROOT"]."/Camagru/config/setup.php");
+include_once($_SERVER["DOCUMENT_ROOT"]."/Camagru/account/ft_account.php");
+include_once($_SERVER["DOCUMENT_ROOT"]."/Camagru/gallery/theme.php");
 if (session_status() == PHP_SESSION_NONE)
 	session_start();
 
 if (isset($_POST["like"]))
 {
-	if (ft_liked($_SESSION["user-id"], $_POST["like"], $db) == FALSE)
+	if (ft_is_logged($db) && ft_pic_exists($_POST["like"], $db))
 	{
-		$req = $db->prepare("INSERT INTO `likes`
-							(`userid`,`picid`)
-							VALUES (?, ?)");
-		$req->execute(array($_SESSION["user-id"], $_POST["like"]));
-		$req = $db->prepare("UPDATE `pictures` SET `likes` = `likes` + 1 WHERE id = ?");
-		$req->execute(array($_POST["like"]));
-		echo "1";
-		exit;
+		if (ft_liked($_SESSION["user-id"], $_POST["like"], $db) == FALSE)
+		{
+			$req = $db->prepare("INSERT INTO `likes`
+								(`userid`,`picid`)
+								VALUES (?, ?)");
+			$req->execute(array($_SESSION["user-id"], $_POST["like"]));
+			$req = $db->prepare("UPDATE `pictures` SET `likes` = `likes` + 1 WHERE id = ?");
+			$req->execute(array($_POST["like"]));
+			echo "1";
+			exit;
+		}
+		else
+		{
+			$req = $db->prepare("DELETE FROM `likes` WHERE `userid` = ? AND `picid` = ?");
+			$req->execute(array($_SESSION["user-id"], $_POST["like"]));
+			$req = $db->prepare("UPDATE `pictures` SET `likes` = `likes` - 1 WHERE id = ?");
+			$req->execute(array($_POST["like"]));
+			echo "0";
+			exit;
+		}
 	}
 	else
 	{
-		$req = $db->prepare("DELETE FROM `likes` WHERE `userid` = ? AND `picid` = ?");
-		$req->execute(array($_SESSION["user-id"], $_POST["like"]));
-		$req = $db->prepare("UPDATE `pictures` SET `likes` = `likes` - 1 WHERE id = ?");
-		$req->execute(array($_POST["like"]));
-		echo "0";
-		exit;
+		echo "nolog";
+		return ("nolog");
 	}
 }
-else if (isset($_POST["comment"]) && isset($_POST["picid"]))
+else if (isset($_POST["comment"]) && isset($_POST["picid"]) && $_POST["comment"] !== NULL && $_POST["comment"] != "")
 {
-	$req = $db->prepare("INSERT INTO `comments` (`userid`, `picid`, `content`, `time`) VALUES (?, ?, ?, ?)");
-	$req->execute(array($_SESSION["user-id"], $_POST["picid"], $_POST["comment"], time()));
+	if (ft_is_logged($db) && ft_pic_exists($_POST["picid"], $db))
+	{
+		$_POST["comment"] = substr($_POST["comment"], 0, 180);
+		$req = $db->prepare("INSERT INTO `comments` (`userid`, `picid`, `content`, `time`) VALUES (?, ?, ?, ?)");
+		$req->execute(array($_SESSION["user-id"], $_POST["picid"], $_POST["comment"], time()));
+		ft_notif_mail($_POST["picid"], $_SESSION["user-id"], $db);
+		echo "ok;".ft_login_byid($_SESSION["user-id"], $db).";".date("F j, H:i");
+		return ("ok;".ft_login_byid($_SESSION["user-id"], $db).";".date("F j, H:i"));
+	}
+	else
+	{
+		echo "nolog";
+		return ("nolog");
+	}
 }
 
-if (isset($_GET["picture"]))
+if (isset($_GET["picture"]) && ft_pic_exists(htmlspecialchars($_GET["picture"]), $db))
 {
-	date_default_timezone_set("Europe/Paris");
 	$req = $db->prepare("SELECT * FROM `pictures` WHERE `id` = ?");
-	$req->execute(array($_GET["picture"]));
+	$req->execute(array(htmlspecialchars($_GET["picture"])));
 	$pic = $req->fetch();
 	$req = $db->prepare("SELECT * FROM `comments` WHERE `picid` = ?");
-	$req->execute(array($_GET["picture"]));
+	$req->execute(array(htmlspecialchars($_GET["picture"])));
 	$comments = $req->fetchAll();
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-	<title><?php echo ft_login_byid($pic["userid"], $db); ?></title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title><?php echo htmlspecialchars(ft_login_byid($pic["userid"], $db)); ?></title>
 	<link rel="stylesheet" type="text/css" href="/Camagru/style/style.css">
 </head>
 <body>
-	<script type="text/javascript">
-		function ft_like(id)
-		{
-			var req = new XMLHttpRequest();
-			req.onreadystatechange = function()
-			{
-				if (req.readyState == XMLHttpRequest.DONE && req.readyState == 4 && req.status == 200)
-				{
-					if (req.responseText == 1)
-					{
-						document.getElementById("like-path"+id).style.fill = "#D75A4A";
-						document.getElementById("like-nbr"+id).innerHTML = parseInt(document.getElementById("like-nbr"+id).innerHTML) + 1;
-					}
-					else
-					{
-						document.getElementById("like-path"+id).style.fill = "#b2b2b2";
-						document.getElementById("like-nbr"+id).innerHTML = parseInt(document.getElementById("like-nbr"+id).innerHTML) - 1;
-					}
-				}
-			}
-			req.open("POST", "gallery.php", true); 
-			req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-			req.send("like="+id);
-		}
-		function post_comment(login, picid, date)
-		{
-			var comment = new XMLHttpRequest();
-			var cont = document.commentform.comment.value;
-			comment.onreadystatechange = function()
-			{
-				if (comment.readyState == XMLHttpRequest.DONE && comment.readyState == 4 && comment.status == 200)
-				{
-					var post = document.createElement("div");
-					post.className = "post";
-					var postlogin = document.createElement("div");
-					postlogin.className = "post-login";
-					postlogin.innerHTML += login;
-					var postdate = document.createElement("div");
-					postdate.className = "post-date";
-					postdate.innerHTML += date;
-					var posttext = document.createElement("div");
-					posttext.className = "post-text";
-					posttext.innerHTML += cont;
-					post.appendChild(postlogin);
-					post.appendChild(postdate);
-					post.appendChild(document.createElement("br"));
-					post.appendChild(posttext);
-					document.commentform.comment.value = "";
-					document.getElementById("comment-div").appendChild(post);
-				}
-			}
-			comment.open("POST", "gallery.php", true); 
-			comment.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-			comment.send("comment="+encodeURIComponent(cont)+"&picid="+picid);
-		}
-	</script>
+	<div id="fb-root"></div>
+	<script>(function(d, s, id){
+		var js, fjs = d.getElementsByTagName(s)[0];
+		if (d.getElementById(id)) return;
+		js = d.createElement(s); js.id = id;
+		js.src = 'https://connect.facebook.net/fr_FR/sdk.js#xfbml=1&version=v3.0';
+		fjs.parentNode.insertBefore(js, fjs);
+	}(document, 'script', 'facebook-jssdk'));</script>
 	<?php
 	if (ft_is_logged($db) == TRUE)
 		{include($_SERVER["DOCUMENT_ROOT"]."/Camagru/content/banner_logged.php");}
@@ -115,78 +88,130 @@ if (isset($_GET["picture"]))
 		{include($_SERVER["DOCUMENT_ROOT"]."/Camagru/content/banner.php");}
 	?>
 	<div class="gallery">
-		<h1><?php echo ft_login_byid($pic["userid"], $db); ?></h1>
+		<a href="/Camagru/account/profile.php?login=<?php echo htmlspecialchars(ft_login_byid($pic["userid"], $db)); ?>" ><h1 style="color: <?php if (check_theme()) echo $_COOKIE["themeColor3"]; else echo "#48A7F2"; ?>;" ><?php echo htmlspecialchars(ft_login_byid($pic["userid"], $db)); ?></h1></a>
 		<div class="comment-section">
 			<img src="<?php echo $pic["path"]; ?>">
 			<svg class="like-button" onclick="ft_like(<?php echo $pic["id"]; ?>)" version="1.1" id="Capa_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"viewBox="0 0 50 50" style="enable-background:new 0 0 50 50;" xml:space="preserve">
-				<path id="like-path<?php echo $pic["id"]; ?>" style="fill:<?php if (ft_liked($_SESSION["user-id"], $pic["id"], $db)) echo "#D75A4A"; else echo "#b2b2b2"; ?>;" d="M24.85,10.126c2.018-4.783,6.628-8.125,11.99-8.125c7.223,0,12.425,6.179,13.079,13.543c0,0,0.353,1.828-0.424,5.119c-1.058,4.482-3.545,8.464-6.898,11.503L24.85,48L7.402,32.165c-3.353-3.038-5.84-7.021-6.898-11.503c-0.777-3.291-0.424-5.119-0.424-5.119C0.734,8.179,5.936,2,13.159,2C18.522,2,22.832,5.343,24.85,10.126z"/>
+				<path id="like-path<?php echo $pic["id"]; ?>" style="fill:<?php if (ft_is_logged($db) && ft_liked($_SESSION["user-id"], $pic["id"], $db)) echo "#D75A4A"; else echo "#b2b2b2"; ?>;" d="M24.85,10.126c2.018-4.783,6.628-8.125,11.99-8.125c7.223,0,12.425,6.179,13.079,13.543c0,0,0.353,1.828-0.424,5.119c-1.058,4.482-3.545,8.464-6.898,11.503L24.85,48L7.402,32.165c-3.353-3.038-5.84-7.021-6.898-11.503c-0.777-3.291-0.424-5.119-0.424-5.119C0.734,8.179,5.936,2,13.159,2C18.522,2,22.832,5.343,24.85,10.126z"/>
 			</svg>
 			<span class="like-nbr" id="like-nbr<?php echo $pic["id"]; ?>"><?php echo $pic["likes"]; ?></span>
+			<span class="picDate" style="color: <?php if (check_theme()) echo $_COOKIE["themeColor1"]; else echo "#fd746c"; ?>;" ><?php echo date("d/m/y", $pic["time"]); ?></span>
 			<div class="comments" id="comment-div">
 				<?php
 				foreach ($comments as $element)
 				{
 					?>
 					<div class="post" >
-						<div class="post-login" ><?php echo ft_login_byid($element["userid"], $db); ?></div>
+						<div class="post-login" ><?php echo htmlspecialchars(ft_login_byid($element["userid"], $db)); ?></div>
 						<div class="post-date" ><?php echo date("F j, H:i", $element["time"]); ?></div>
 						<br/>
-						<div class="post-text" ><?php echo $element["content"] ?></div>
+						<div class="post-text" ><?php echo htmlspecialchars($element["content"]) ?></div>
 					</div>
 					<?php
 				}
 				?>
 			</div>
 			<div class="post-comment" >
-				<form name="commentform" onsubmit="post_comment(<?php echo "'".ft_login_byid($_SESSION["user-id"], $db)."'"; ?>, <?php echo $pic["id"]; ?>, <?php echo "'".date("F j, H:i")."'"; ?>); return false;">
-					<input class="comment-text" type="text" name="comment" required maxlength="180" autocomplete="off">
+				<form name="commentform" onsubmit="post_comment(); return false;">
+					<input class="comment-text" type="text" name="comment" required maxlength="180" autocomplete="off" style="border-color: <?php if (check_theme()) echo $_COOKIE["themeColor1"]; else echo "#fd746c"; ?>">
 					<input class="submit-button" type="image" src="/Camagru/images/send-button.svg" alt="submit" />
 				</form>
 			</div>
+			<a style="margin: 0; padding: 0" href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button" data-show-count="false">Tweet</a><script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+			<br />
+			<div style="margin: 5px;" class="fb-share-button" data-href="http://localhost:8080/Camagru/gallery/gallery.php?picture=8" data-layout="button_count" data-size="small" data-mobile-iframe="true"><a target="_blank" href="https://www.facebook.com/sharer/sharer.php?u=http%3A%2F%2Flocalhost%3A8080%2FCamagru%2Fgallery%2Fgallery.php%3Fpicture%3D<?php echo $_GET["picture"]; ?>&amp;src=sdkpreparse" class="fb-xfbml-parse-ignore">Partager</a></div>
 		</div>
 	</div>
+	<?php include($_SERVER["DOCUMENT_ROOT"]."/Camagru/content/footer.php"); ?>
+	<script type="text/javascript" src="/Camagru/scripts/script.js" ></script>
 </body>
 </html>
 <?php
 }
+else if (isset($_GET["picture"]))
+{
+?>
+Error 404, not found.
+<?php
+}
 else
 {
-	$req = $db->prepare("SELECT * FROM `pictures` ORDER BY `time` DESC");
+	$req = $db->prepare("SELECT COUNT(*) AS `total` FROM `pictures`");
+	$req->execute();
+	$fetch = $req->fetch();
+	$total = $fetch["total"];
+	$npages = ceil($total/20);
+	if ($npages < 1)
+		$npages = 1;
+
+	if (isset($_GET["page"]))
+	{
+		$page = intval($_GET["page"]);
+		if ($page > $npages)
+			$page = $npages;
+		else if ($page < 1)
+			$page = 1;
+	}
+	else
+		$page = 1;
+
+	$start = ($page - 1) * 20;
+	$req = $db->prepare("SELECT * FROM `pictures` ORDER BY `time` DESC LIMIT ".$start.", 20 ");
 	$req->execute(array());
 	$pics = $req->fetchAll();
 ?>
+
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Gallerie</title>
 	<link rel="stylesheet" type="text/css" href="/Camagru/style/style.css">
+	<style type="text/css">
+		.pages
+		{
+			margin: 30px;
+			display: inline-block;
+			border: solid 3px <?php if (check_theme()) echo $_COOKIE["themeColor3"]; else echo "#48a7f2"; ?>;
+			border-radius: 2px;
+		}
+		.pages .other
+		{
+			display: inline-block;
+			border: solid 1px #efefef;
+			font-size: 23px;
+			padding: 10px;
+			font-family: Raleway;
+			background-color: <?php if (check_theme()) echo $_COOKIE["themeColor2"]; else echo "#ff9068"; ?>;
+			color: #2b2b2b;
+		}
+		.pages .other:hover
+		{
+			display: inline-block;
+			border: solid 2px #505050;
+			border-style: inset;
+			font-size: 23px;
+			padding: 10px;
+			font-family: Raleway;
+			background-color: <?php if (check_theme()) echo $_COOKIE["themeColor1"]; else echo "#fd746c"; ?>;
+			color: #2b2b2b;
+		}
+		.pages .actual
+		{
+			position: relative;
+			display: inline-block;
+			border: solid 2px #505050;
+			border-style: inset;
+			font-size: 23px;
+			padding: 10px;
+			font-family: Raleway;
+			background-color: <?php if (check_theme()) echo $_COOKIE["themeColor1"]; else echo "#fd746c"; ?>;
+			color: #2b2b2b;
+		}
+	</style>
 </head>
 <body>
-	<script type="text/javascript">
-		function ft_like(id)
-		{
-			var req = new XMLHttpRequest();
-			req.onreadystatechange = function()
-			{
-				if (req.readyState == XMLHttpRequest.DONE && req.readyState == 4 && req.status == 200)
-				{
-					if (req.responseText == 1)
-					{
-						document.getElementById("like-path"+id).style.fill = "#D75A4A";
-						document.getElementById("like-nbr"+id).innerHTML = parseInt(document.getElementById("like-nbr"+id).innerHTML) + 1;
-					}
-					else
-					{
-						document.getElementById("like-path"+id).style.fill = "#b2b2b2";
-						document.getElementById("like-nbr"+id).innerHTML = parseInt(document.getElementById("like-nbr"+id).innerHTML) - 1;
-					}
-				}
-			}
-			req.open("POST", "gallery.php", true); 
-			req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-			req.send("like="+id);
-		}
-	</script>
 	<?php
 	if (ft_is_logged($db) == TRUE)
 		{include($_SERVER["DOCUMENT_ROOT"]."/Camagru/content/banner_logged.php");}
@@ -194,7 +219,7 @@ else
 		{include($_SERVER["DOCUMENT_ROOT"]."/Camagru/content/banner.php");}
 	?>
 	<div class="gallery">
-		<h1>Gallerie</h1>
+		<h1 style="color: <?php if (check_theme()) echo $_COOKIE["themeColor3"]; else echo "#48A7F2"; ?>;" >Gallerie</h1>
 		<div class="gallery-pics">
 			<?php
 			foreach ($pics as $element)
@@ -203,10 +228,10 @@ else
 				{
 					?>
 					<div class="pics" >
-						<span class="login" ><?php echo ft_login_byid($element["userid"], $db); ?></span>
+						<a href="/Camagru/account/profile.php?login=<?php echo htmlspecialchars(ft_login_byid($element["userid"], $db)); ?>" ><span class="login" ><?php echo htmlspecialchars(ft_login_byid($element["userid"], $db)); ?></span></a>
 						<a href="?picture=<?php echo $element["id"]; ?>"><img src="<?php echo $element["path"]; ?>"></a>
 						<svg class="like-button" onclick="ft_like(<?php echo $element["id"]; ?>)" version="1.1" id="Capa_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"viewBox="0 0 50 50" style="enable-background:new 0 0 50 50;" xml:space="preserve">
-							<path id="like-path<?php echo $element["id"]; ?>" style="fill:<?php if (ft_liked($_SESSION["user-id"], $element["id"], $db)) echo "#D75A4A"; else echo "#b2b2b2"; ?>;" d="M24.85,10.126c2.018-4.783,6.628-8.125,11.99-8.125c7.223,0,12.425,6.179,13.079,13.543c0,0,0.353,1.828-0.424,5.119c-1.058,4.482-3.545,8.464-6.898,11.503L24.85,48L7.402,32.165c-3.353-3.038-5.84-7.021-6.898-11.503c-0.777-3.291-0.424-5.119-0.424-5.119C0.734,8.179,5.936,2,13.159,2C18.522,2,22.832,5.343,24.85,10.126z"/>
+							<path id="like-path<?php echo $element["id"]; ?>" style="fill:<?php if (ft_is_logged($db) && ft_liked($_SESSION["user-id"], $element["id"], $db)) echo "#D75A4A"; else echo "#b2b2b2"; ?>;" d="M24.85,10.126c2.018-4.783,6.628-8.125,11.99-8.125c7.223,0,12.425,6.179,13.079,13.543c0,0,0.353,1.828-0.424,5.119c-1.058,4.482-3.545,8.464-6.898,11.503L24.85,48L7.402,32.165c-3.353-3.038-5.84-7.021-6.898-11.503c-0.777-3.291-0.424-5.119-0.424-5.119C0.734,8.179,5.936,2,13.159,2C18.522,2,22.832,5.343,24.85,10.126z"/>
 						</svg>
 						<span class="like-nbr" id="like-nbr<?php echo $element["id"]; ?>"><?php echo $element["likes"]; ?></span>
 						<a href="?picture=<?php echo $element["id"]; ?>">
@@ -231,7 +256,48 @@ else
 			}
 			?>
 		</div>
+		<?php
+		if ($npages > 0)
+		{
+		?>
+		<div class="pages" >
+			<?php
+			if ($npages < 10)
+			{
+				for ($i=1; $i <= $npages ; $i++)
+				{
+					if ($i == $page)
+						echo "<a href=\"?page=".$i."\"><div class=\"actual\" >".$i."</div></a>";
+					else
+						echo "<a href=\"?page=".$i."\"><div class=\"other\" >".$i."</div></a>";
+				}
+			}
+			else
+			{
+				for ($i=1; $i <= 4 ; $i++)
+				{
+					if ($i == $page)
+						echo "<a href=\"?page=".$i."\"><div class=\"actual\" >".$i."</div></a>";
+					else
+						echo "<a href=\"?page=".$i."\"><div class=\"other\" >".$i."</div></a>";
+				}
+				echo "<div class=\"other\" >...</div>";
+				for ($i=($npages - 3); $i <= $npages ; $i++)
+				{
+					if ($i == $page)
+						echo "<a href=\"?page=".$i."\"><div class=\"actual\" >".$i."</div></a>";
+					else
+						echo "<a href=\"?page=".$i."\"><div class=\"other\" >".$i."</div></a>";
+				}
+			}
+			?>
+		</div>
+		<?php
+		}
+		?>
 	</div>
+	<?php include($_SERVER["DOCUMENT_ROOT"]."/Camagru/content/footer.php"); ?>
+	<script type="text/javascript" src="/Camagru/scripts/script.js" ></script>
 </body>
 </html>
 <?php

@@ -1,9 +1,12 @@
+<?php
+include_once ($_SERVER["DOCUMENT_ROOT"]."/Camagru/gallery/theme.php");
+?>
 <html>
 <head>
 	<link rel="stylesheet" type="text/css" href="/Camagru/style/style.css">
 </head>
 <body>
-	<div class="banner" >
+	<div class="banner" style="background: linear-gradient(-45deg, <?php if (check_theme()) echo $_COOKIE["themeColor1"].", ".$_COOKIE["themeColor2"]; else echo "#fd746c, #ff9068"; ?>);" >
 		<a href="/Camagru/index.php" ><svg class="banner-logo" width="100px" version="1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" enable-background="new 0 0 48 48">
 		    <path fill="#455A64" d="M36.5,44H11.5c-1.1,0-1.8-1.2-1.3-2.2L13,37h22l2.7,4.8C38.3,42.8,37.6,44,36.5,44z"/>
 		    <circle fill="#78909C" cx="24" cy="23" r="18"/>

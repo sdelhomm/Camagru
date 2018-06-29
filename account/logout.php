@@ -6,5 +6,6 @@ if (session_status() == PHP_SESSION_NONE)
 $_SESSION["user-id"] = 0;
 
 header("Location: /Camagru/index.php");
+exit ;
 
 ?>
